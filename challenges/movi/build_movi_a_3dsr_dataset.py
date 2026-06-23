@@ -62,14 +62,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-frames-per-sequence",
         type=int,
-        default=4,
+        default=12,
         help="Maximum candidate frames to sample from each sequence.",
     )
     parser.add_argument(
         "--max-samples-per-sequence",
         type=int,
-        default=12,
+        default=24,
         help="Stop after writing this many task samples for one sequence.",
+    )
+    parser.add_argument(
+        "--max-object-centric-samples-per-sequence",
+        type=int,
+        default=16,
+        help="Maximum number of 2-choice object-centric samples to export per sequence.",
+    )
+    parser.add_argument(
+        "--max-object-centric-multi-samples-per-sequence",
+        type=int,
+        default=8,
+        help="Maximum number of multi-object object-centric samples to export per sequence.",
     )
     parser.add_argument(
         "--min-visible-pixels",
@@ -764,6 +776,8 @@ def build_records_for_sequence(
     sequence_name = decode_video_name(str(data["metadata"]["video_name"]))
 
     records: list[dict[str, Any]] = []
+    object_centric_count = 0
+    object_centric_multi_count = 0
     frame_indices = choose_frame_indices(num_frames, args.max_frames_per_sequence, rng)
 
     for frame_idx in frame_indices:
@@ -797,6 +811,8 @@ def build_records_for_sequence(
             anchor_candidates = visible_indices[:]
             rng.shuffle(anchor_candidates)
             for anchor_idx in anchor_candidates:
+                if object_centric_multi_count >= args.max_object_centric_multi_samples_per_sequence:
+                    break
                 multi_task = build_object_centric_multi_task(
                     sequence_name,
                     frame_idx,
@@ -811,7 +827,7 @@ def build_records_for_sequence(
                 )
                 if multi_task is not None:
                     records.append(multi_task)
-                    break
+                    object_centric_multi_count += 1
             if len(records) >= args.max_samples_per_sequence:
                 return records[: args.max_samples_per_sequence]
 
@@ -857,6 +873,8 @@ def build_records_for_sequence(
                     records.append(distance_task)
 
                 for anchor_idx, other_idx in (pair, (pair[1], pair[0])):
+                    if object_centric_count >= args.max_object_centric_samples_per_sequence:
+                        break
                     object_task = build_object_centric_task(
                         sequence_name,
                         frame_idx,
@@ -869,6 +887,7 @@ def build_records_for_sequence(
                     )
                     if object_task is not None:
                         records.append(object_task)
+                        object_centric_count += 1
 
                 if len(records) >= args.max_samples_per_sequence:
                     return records[: args.max_samples_per_sequence]

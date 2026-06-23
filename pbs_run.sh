@@ -18,4 +18,4 @@ python /home/ramanathan/VLM/kubric/challenges/movi/build_movi_a_3dsr_dataset.py 
   --input-dir /home/ramanathan/data/movi_a_export \
   --output-jsonl /home/ramanathan/data/movi_a_3dsr/movi_a_validation.jsonl \
   --output-parquet /home/ramanathan/data/movi_a_3dsr/movi_a_validation.parquet \
-  --seed 42
+  --seed 0
