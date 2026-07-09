@@ -27,8 +27,6 @@ OBJECT_RELATIONS = {
     "behind": ("behind", "behind"),
 }
 
-YES_NO_OPTIONS = ["yes", "no"]
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -84,18 +82,6 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=16,
         help="Maximum number of multi-object object-centric samples to export per sequence.",
-    )
-    parser.add_argument(
-        "--max-object-centric-direction-samples-per-sequence",
-        type=int,
-        default=16,
-        help="Maximum number of binary object-centric direction samples to export per sequence.",
-    )
-    parser.add_argument(
-        "--max-camera-pose-samples-per-sequence",
-        type=int,
-        default=12,
-        help="Maximum number of camera-pose samples to export per sequence.",
     )
     parser.add_argument(
         "--min-visible-pixels",
@@ -351,33 +337,6 @@ def compute_object_centric_relation(
             "front": rel_front,
             "up": relative[2],
         },
-    }
-
-
-def compute_camera_world_vector(
-    anchor_position: list[float],
-    camera_position: list[float],
-) -> dict[str, Any]:
-    vector = subtract3(camera_position, anchor_position)
-    distance = norm3(vector)
-    horizontal_scores = {
-        "left": vector[0],
-        "right": -vector[0],
-        "front": vector[1],
-        "behind": -vector[1],
-    }
-    relation, score = max(horizontal_scores.items(), key=lambda item: item[1])
-    _, canonical_relation = OBJECT_RELATIONS[relation]
-    return {
-        "vector_world_aligned": {
-            "right": float(vector[0]),
-            "up": float(vector[2]),
-            "front": float(vector[1]),
-        },
-        "distance": float(distance),
-        "horizontal_scores": horizontal_scores,
-        "dominant_horizontal_relation": canonical_relation,
-        "dominant_horizontal_score": float(score),
     }
 
 
@@ -679,122 +638,6 @@ def build_object_centric_task(
     )
 
 
-def build_object_centric_direction_tasks(
-    sequence_name: str,
-    frame_idx: int,
-    frame_path: Path,
-    objects: list[dict[str, Any]],
-    anchor_idx: int,
-    other_idx: int,
-    camera_position: list[float],
-    min_sep: float,
-) -> list[dict[str, Any]]:
-    anchor = objects[anchor_idx]
-    other = objects[other_idx]
-    relation_info = compute_object_centric_relation(
-        anchor["position_3d"],
-        other["position_3d"],
-        camera_position,
-    )
-    if relation_info is None or relation_info["score"] < min_sep:
-        return []
-
-    truth_relation = relation_info["relation"]
-    axis_scores = relation_info["axis_scores"]
-    incorrect_relations = [label for label in OBJECT_RELATIONS if label != truth_relation]
-    hardest_negative = max(incorrect_relations, key=lambda label: axis_scores[label])
-    relation_candidates = [truth_relation, hardest_negative]
-    tasks: list[dict[str, Any]] = []
-
-    for queried_relation in relation_candidates:
-        is_true = queried_relation == truth_relation
-        score = axis_scores[queried_relation]
-        margin = relation_info["score"] - max(
-            axis_scores[label] for label in OBJECT_RELATIONS if label != queried_relation
-        )
-        question = (
-            f"Imagine standing at the {anchor['name']} and facing the camera. "
-            f"Is the {other['name']} {OBJECT_RELATIONS[queried_relation][0]} the {anchor['name']}?"
-        )
-        difficulty = classify_difficulty(abs(score), min_sep)
-        tasks.append(
-            make_base_record(
-                qid=make_qid("movi_object_dir"),
-                sequence_name=sequence_name,
-                frame_idx=frame_idx,
-                frame_path=frame_path,
-                task_family="object_centric_direction_binary",
-                question=question,
-                answer="A" if is_true else "B",
-                options=YES_NO_OPTIONS,
-                objects=objects,
-                referenced_object_indices=[anchor_idx, other_idx],
-                task_metadata={
-                    "anchor_object": anchor["name"],
-                    "target_object": other["name"],
-                    "queried_relation": queried_relation,
-                    "truth_relation": truth_relation,
-                    "is_true": is_true,
-                    "difficulty": difficulty,
-                    "separation": abs(score),
-                    "minimum_separation": min_sep,
-                    "axis_margin": margin,
-                    "relative_local_coordinates": relation_info["relative_local_coordinates"],
-                    "axis_scores": axis_scores,
-                    "camera_position": camera_position,
-                },
-            )
-        )
-    return tasks
-
-
-def build_camera_pose_task(
-    sequence_name: str,
-    frame_idx: int,
-    frame_path: Path,
-    objects: list[dict[str, Any]],
-    anchor_idx: int,
-    camera_position: list[float],
-    min_sep: float,
-) -> dict[str, Any] | None:
-    anchor = objects[anchor_idx]
-    camera_info = compute_camera_world_vector(anchor["position_3d"], camera_position)
-    if camera_info["dominant_horizontal_score"] < min_sep:
-        return None
-
-    relation = camera_info["dominant_horizontal_relation"]
-    question = (
-        f"Using world-aligned directions where +X is right and +Y is front, "
-        f"which horizontal direction best describes the camera position relative to the {anchor['name']}?"
-    )
-    options = ["left", "right", "front", "behind"]
-    answer = chr(ord("A") + options.index(relation))
-    difficulty = classify_difficulty(camera_info["dominant_horizontal_score"], min_sep)
-    return make_base_record(
-        qid=make_qid("movi_camera_pose"),
-        sequence_name=sequence_name,
-        frame_idx=frame_idx,
-        frame_path=frame_path,
-        task_family="object_centric_camera_pose",
-        question=question,
-        answer=answer,
-        options=options,
-        objects=objects,
-        referenced_object_indices=[anchor_idx],
-        task_metadata={
-            "anchor_object": anchor["name"],
-            "relation": relation,
-            "difficulty": difficulty,
-            "separation": camera_info["dominant_horizontal_score"],
-            "minimum_separation": min_sep,
-            "camera_vector_world_aligned": camera_info["vector_world_aligned"],
-            "camera_distance": camera_info["distance"],
-            "horizontal_scores": camera_info["horizontal_scores"],
-            "camera_position": camera_position,
-        },
-    )
-
-
 def build_object_centric_multi_tasks(
     sequence_name: str,
     frame_idx: int,
@@ -933,8 +776,6 @@ def build_records_for_sequence(
     records: list[dict[str, Any]] = []
     object_centric_count = 0
     object_centric_multi_count = 0
-    object_centric_direction_count = 0
-    camera_pose_count = 0
     frame_indices = choose_frame_indices(num_frames, args.max_frames_per_sequence, rng)
 
     for frame_idx in frame_indices:
@@ -962,27 +803,11 @@ def build_records_for_sequence(
         object_idx_to_visible_idx = {obj["object_idx"]: idx for idx, obj in enumerate(objects)}
         visible_original_indices = [obj["object_idx"] for obj in objects]
         camera_position = [float(v) for v in data["camera"]["positions"][frame_idx]]
-        visible_indices = list(range(len(objects)))
-        anchor_candidates = visible_indices[:]
-        rng.shuffle(anchor_candidates)
-
-        for anchor_idx in anchor_candidates:
-            if camera_pose_count >= args.max_camera_pose_samples_per_sequence:
-                break
-            camera_pose_task = build_camera_pose_task(
-                sequence_name,
-                frame_idx,
-                frame_path,
-                objects,
-                anchor_idx,
-                camera_position,
-                args.min_object_centric_separation,
-            )
-            if camera_pose_task is not None:
-                records.append(camera_pose_task)
-                camera_pose_count += 1
 
         if len(objects) >= 3:
+            visible_indices = list(range(len(objects)))
+            anchor_candidates = visible_indices[:]
+            rng.shuffle(anchor_candidates)
             for anchor_idx in anchor_candidates:
                 if object_centric_multi_count >= args.max_object_centric_multi_samples_per_sequence:
                     break
@@ -1063,23 +888,6 @@ def build_records_for_sequence(
                     if object_task is not None:
                         records.append(object_task)
                         object_centric_count += 1
-
-                    if object_centric_direction_count < args.max_object_centric_direction_samples_per_sequence:
-                        direction_tasks = build_object_centric_direction_tasks(
-                            sequence_name,
-                            frame_idx,
-                            frame_path,
-                            objects,
-                            anchor_idx,
-                            other_idx,
-                            camera_position,
-                            args.min_object_centric_separation,
-                        )
-                        for direction_task in direction_tasks:
-                            if object_centric_direction_count >= args.max_object_centric_direction_samples_per_sequence:
-                                break
-                            records.append(direction_task)
-                            object_centric_direction_count += 1
 
                 if len(records) >= args.max_samples_per_sequence:
                     return records[: args.max_samples_per_sequence]
