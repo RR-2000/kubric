@@ -26,7 +26,6 @@ OBJECT_RELATIONS = {
     "front": ("in front of", "front"),
     "behind": ("behind", "behind"),
 }
-
 YES_NO_OPTIONS = ["yes", "no"]
 
 
@@ -144,6 +143,13 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.25,
         help="Skip frames with same-shape objects whose RGB distance is below this threshold.",
+    )
+    
+    parser.add_argument(
+        "--sample-frame-start",
+        type=int,
+        default=0,
+        help="Frame index to start sampling from.",
     )
     return parser.parse_args()
 
@@ -275,10 +281,12 @@ def is_frame_unambiguous(
     return True
 
 
-def choose_frame_indices(num_frames: int, max_frames: int, rng: random.Random) -> list[int]:
-    frame_indices = list(range(num_frames))
+def choose_frame_indices(num_frames: int, max_frames: int, sample_frame_start: int, rng: random.Random) -> list[int]:
+    sample_frame_start = max(0, min(sample_frame_start, num_frames - 1))
+    
+    frame_indices = list(range(sample_frame_start, num_frames))
     rng.shuffle(frame_indices)
-    return sorted(frame_indices[: min(num_frames, max_frames)])
+    return sorted(frame_indices[: min(num_frames - sample_frame_start, max_frames)])
 
 
 def make_qid(prefix: str) -> str:
@@ -935,7 +943,7 @@ def build_records_for_sequence(
     object_centric_multi_count = 0
     object_centric_direction_count = 0
     camera_pose_count = 0
-    frame_indices = choose_frame_indices(num_frames, args.max_frames_per_sequence, rng)
+    frame_indices = choose_frame_indices(num_frames, args.max_frames_per_sequence, args.sample_frame_start, rng)
 
     for frame_idx in frame_indices:
         frame_path = frames_dir / f"frame_{frame_idx:05d}.png"

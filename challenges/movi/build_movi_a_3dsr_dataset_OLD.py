@@ -44,13 +44,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-jsonl",
         type=Path,
-        default=Path("/home/ramanathan/data/movi_a_3dsr_new/movi_a_3dsr.jsonl"),
+        default=Path("/home/ramanathan/data/movi_a_3dsr/movi_a_3dsr.jsonl"),
         help="Output JSONL path.",
     )
     parser.add_argument(
         "--output-parquet",
         type=Path,
-        default=Path("/home/ramanathan/data/movi_a_3dsr_new/movi_a_3dsr.parquet"),
+        default=Path("/home/ramanathan/data/movi_a_3dsr/movi_a_3dsr.parquet"),
         help="Output Parquet path.",
     )
     parser.add_argument(
